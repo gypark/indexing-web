@@ -1,6 +1,10 @@
 {
+    # 책 제목.
+    # 큰 의미는 없고 화면에 보여주거나 엑셀 파일을 다운로드할 때 파일명에 들어간다.
     book_title => 'My Book',
 
+    # DB 접속 정보
+    # DB 파일 이름이 /db/mybook.db3 가 아니거나 다른 DBMS를 쓸 경우 수정
     db_connect_arg => [
         'dbi:SQLite:./db/mybook.db3',
         '',
@@ -8,10 +12,11 @@
         {sqlite_unicode=>1},
     ],
 
+    # HTTP 기본 인증
+    # '아이디' => '비밀번호' 형식으로 추가
+    # 비밀번호는 평문 또는 htpasswd 를 써서 생성한 crypt()ed 형태로 쓸 것
     basic_auth => {
         # 'username' => 'password',
-        # password : plain text or crypt()
-        'username' => 'password',
     },
 };
 
