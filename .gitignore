@@ -1,4 +1,4 @@
 .*.swp
-db/
+db/*.db3
 local/
 cpanfile.snapshot
