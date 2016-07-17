@@ -44,7 +44,7 @@ Subtraction			      8-9
 1. 적당한 디렉토리에 저장소를 복제하거나 ZIP 파일을 다운받아 푼다.
 
     ``` bash
-    $ git clone https://github.com/gypark/Indexing-Web.git
+    $ git clone https://github.com/gypark/indexing-web.git
     ```
 
 2. 필요한 펄 모듈을 설치한다.
