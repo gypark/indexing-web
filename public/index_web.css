@@ -1,0 +1,104 @@
+body {
+    font-size: 13px;
+}
+
+
+table.summary {
+    border-collapse: collapse;
+}
+table.summary td {
+    border: 1px solid #666666;
+    padding: 8px;
+}
+table.summary td.str {
+    background-color: #dedede;
+}
+table.summary td.num {
+    min-width: 100px;
+    text-align: right;
+}
+
+
+table.entries {
+    border: 1px solid red;
+    width: 100%;
+
+    color:#333333;
+    border-width: 1px;
+    border-color: #666666;
+    border-collapse: collapse;
+}
+table.entries th {
+    border-width: 1px;
+    padding: 8px;
+    border-style: solid;
+    border-color: #666666;
+    background-color: #dedede;
+}
+table.entries td {
+    border-width: 1px;
+    padding: 8px;
+    border-style: solid;
+    border-color: #666666;
+}
+table.entries tr.this_page td {
+    background-color: #ffffff;
+}
+table.entries tr.other_page td {
+    background-color: #f0f0f0;
+}
+table.entries tr.new_group td {
+    border-top: 4px double gray;
+}
+table.entries tr.locked td {
+    color: dimgray;
+}
+table.entries tr.history td {
+    background-color: #e0f0e0;
+    border: none;
+    border-bottom: 1px dashed green;
+    font-size: 9pt;
+    color: gray;
+    padding: 1px 10px 1px 12px;
+}
+
+
+.navi {
+    font-size: 12pt;
+}
+
+.row {
+  display: table;
+}
+
+.col {
+  display: table-cell;
+
+  padding: 1em;
+  vertical-align: middle;
+  text-align: center;
+}
+
+input, select {
+    font-size: 13px;
+}
+input.textfield {
+    word-wrap: break-word;
+    word-break: break-all;
+}
+input.update {
+    float: right;
+    margin-top: 10px;
+    width: 40%;
+    line-height: 31px!important;
+    font-size: 16px!important;
+    border-width: 2px;
+    border-radius: 2px;
+}
+input.checkbox_lock {
+    -ms-transform: scale(1.2); /* IE */
+    -moz-transform: scale(1.2); /* FF */
+    -webkit-transform: scale(1.2); /* Safari and Chrome */
+    -o-transform: scale(1.2); /* Opera */
+}
+

@@ -1,0 +1,994 @@
+#!/usr/bin/env perl
+use Mojolicious::Lite;
+
+our $VERSION = '0.4';
+
+use FindBin;
+BEGIN { unshift @INC, "$FindBin::Bin/lib" }
+
+use utf8;
+use Indexing::Schema qw();
+use List::Util qw(first);
+use Try::Tiny;
+use Text::Trim;
+use File::Temp;
+use File::Basename;
+use Spreadsheet::ParseXLSX;
+use Excel::Writer::XLSX;
+use DateTime;
+use DateTimeX::Format::Ago;
+
+# Documentation browser under "/perldoc"
+plugin 'PODRenderer';
+plugin 'basic_auth';
+my $CONFIG_FILE = './config/index_web.conf';
+unless ( -f $CONFIG_FILE ) {
+    say "$CONFIG_FILE not found. exit...";
+    exit 1;
+}
+
+
+
+helper 'config' => sub {
+    my $self = shift;
+
+    state $config = plugin 'Config' => { file => $CONFIG_FILE };
+    return $config;
+};
+
+helper 'current_user' => sub {
+    my $self = shift;
+    return $self->session('user') // 'N.A.';
+};
+
+helper 'schema' => sub {
+    my $self = shift;
+    my $name = shift;
+    state $schema = Indexing::Schema->connect( @{$self->config->{db_connect_arg}} );
+    return $schema;
+};
+
+helper 'resultset' => sub {
+    my $self = shift;
+    my $name = shift;
+    return $self->schema->resultset($name);
+};
+
+helper 'randseq' => sub {
+    my $rand = int(rand(10000000));
+    my $time = time;
+    return "$time$rand";
+};
+
+helper '_get_page_list' => sub {
+    my $self = shift;
+    my @pages = $self->resultset('EntryPage')->search(
+        undef,
+        {
+            group_by => 'me.page',
+            columns => [ 'me.page' ],
+            order_by => { -asc => 'me.page' },
+        }
+    );
+    return [ map { $_->page } @pages ];
+};
+
+helper '_get_row_list' => sub {
+    my $self = shift;
+    my @pages = $self->resultset('Entry')->search(
+        {
+            'me.level' => 1
+        },
+        {
+            columns => [ 'me.row' ],
+            order_by => { -asc => 'me.row' },
+        }
+    );
+    return [ map { $_->row } @pages ];
+};
+
+helper 'page_links' => sub {
+    my $self = shift;
+    my $str = shift;
+
+    $str =~ s{(\d+)}{<a href="/page/$1">$1</a>}g;
+    return $str;
+};
+
+helper 'time_ago' => sub {
+    my ($self, $timestamp) = @_;
+
+    state $formatter = DateTimeX::Format::Ago->new( language => 'KOR');
+    return $timestamp ? $formatter->format_datetime($timestamp) : '';
+};
+
+helper 'get_entry_list_with_history' => sub {
+    my ($self, $list) = @_;
+
+    my @full_hash_entries;
+    foreach my $entry ( @{$list} ) {
+        push @full_hash_entries, $entry->as_hash;
+        my @translations = $entry->translations(
+            undef,
+            {
+                order_by => [ { -desc => 'me.created_at' }, { -desc => 'me.id' } ],
+            }
+        );
+        next unless ( @translations >= 2 );
+        shift @translations;
+        foreach my $t ( @translations ) {
+            my $t_hash = {
+                is_history => 1,
+                map { $_ => $t->$_ } qw(kor_1 kor_2 kor_3 kor_page comment user created_at)
+            };
+
+            push @full_hash_entries, $t_hash;
+        }
+    }
+
+    return \@full_hash_entries;
+};
+
+under sub {
+    my $self = shift;
+
+    if ( ! exists $self->config->{basic_auth} ) {
+        $self->session(user => 'Anonymous');
+        return 1;
+    }
+
+    my $auth = $self->config->{basic_auth};
+    return unless ref $auth eq ref {};
+
+    return 1 if $self->basic_auth(
+        $self->config->{book_title} => sub {
+            my ($user, $pass) = @_;
+
+            if (
+                $user and $auth->{$user}
+                    and
+                ( $pass eq $auth->{$user} or crypt($pass, $auth->{$user}) eq $auth->{$user} )
+            ) {
+                $self->session(user => $user);
+                return 1;
+            }
+            return 0;
+        }
+    );
+    $self->render( text => 'You need authentication.' );
+    return;
+};
+
+get '/' => sub {
+    my $self = shift;
+
+    if ( my $row = $self->param('row') ) {
+        return $self->redirect_to("/row/$row?r=".$self->randseq);
+    }
+    elsif ( defined( my $page = $self->param('page') ) ) {
+        return $self->redirect_to("/page/$page?r=".$self->randseq);
+    }
+
+    my $last_translation = $self->resultset('Translation')->search(
+        undef,
+        {
+            order_by => [ { -desc => 'me.created_at' }, { -desc => 'me.id' } ],
+            rows => 1,
+        }
+    )->first;
+
+    $self->stash(
+        template => 'index',
+        pages => $self->_get_page_list,
+        rows  => $self->_get_row_list,
+        num_entries => $self->resultset('Entry')->count,
+        num_entries_undone => $self->resultset('Entry')->search(
+            {
+                'translations.id' => undef,
+            },
+            {
+                join => 'translations',
+            }
+        )->count,
+        num_entries_done => $self->resultset('Entry')->search(
+            {
+                'translations.id' => { -not => undef },
+            },
+            {
+                columns => [ 'me.row' ],
+                join => 'translations',
+                group_by => 'me.row',
+            }
+        )->count,
+        num_entries_locked => $self->resultset('Entry')->search(
+            {
+                'me.is_locked' => 1,
+            },
+        )->count,
+        last_translation => $last_translation,
+    );
+};
+
+get '/page/:page' => [ page => qr/\d+/ ] => sub {
+    my $self = shift;
+
+    my $page = $self->param('page');
+
+    my @entries = $self->resultset('Entry')->search(
+        {
+            'entry_pages.page' => {
+#               -in => [ $page - 1, $page, $page + 1 ]
+                -in => [ $page ],
+            },
+        },
+        {
+            prefetch => [ { 'parent_row' => 'parent_row' }, 'entry_pages' ],
+            order_by => [
+                { -asc => 'entry_pages.page' },
+                { -asc => 'me.row' },
+            ],
+        }
+    );
+
+    my @full_entries;
+
+    while ( @entries ) {
+        my $entry = shift @entries;
+
+        if ( $entry->level == 1 ) {
+            push @full_entries, $entry;
+            next;
+        }
+
+        my $first_higher = first { $_->level < $entry->level } reverse @full_entries;
+        if ( $first_higher and $first_higher->row == $entry->parent_row_id ) {
+            push @full_entries, $entry;
+            next;
+        }
+
+        unshift @entries, ( $entry->parent_row, $entry );
+    }
+
+    my $full_hash_entries = $self->get_entry_list_with_history( \@full_entries );
+
+    my $pages = $self->_get_page_list;
+    my $prev_page = first { $_ < $page } reverse @{$pages};
+    my $next_page = first { $_ > $page } @{$pages};
+
+    $self->stash(
+        template => 'list',
+        view     => 'page',
+        title    => "$page page",
+        entries  => $full_hash_entries,
+        options => $pages,
+        current => $page,
+        redirect_to => "/page/$page",
+        prev_link => defined $prev_page ? [ "/page/$prev_page", "page $prev_page" ] : undef,
+        next_link => defined $next_page ? [ "/page/$next_page", "page $next_page" ] : undef,
+    );
+};
+
+get '/row/:row' => [ row => qr/\d+/ ] => sub {
+    my $self = shift;
+
+    my $row = $self->param('row');
+
+    my $entry = $self->resultset('Entry')->find(
+        {
+            'me.row' => $row,
+        },
+        {
+            prefetch => [
+                { 'entries' => { 'entries' => 'entries' } },
+                { 'parent_row' => 'parent_row' },
+            ],
+            order_by => [
+                { -asc => 'me.row' },
+            ],
+        }
+    );
+
+    unless ( $entry ) {
+        return $self->reply->not_found;
+    }
+
+    my $parent = $entry;
+    while ( $parent->level != 1 ) {
+        $parent = $parent->parent_row;
+    }
+    # XXX just to reduce queries
+    # reload group header node with prefetching
+    if ( $parent != $entry ) {
+        $parent = $self->resultset('Entry')->find(
+            {
+                'me.row' => $parent->row,
+            },
+            {
+                prefetch => [
+                    { 'entries' => { 'entries' => 'entries' } },
+                ],
+                order_by => [
+                    { -asc => 'me.row' },
+                ],
+            }
+        );
+    }
+
+    my @full_entries;
+    my @queue = ( $parent );
+    while ( @queue ) {
+        my $e = shift @queue;
+        push @full_entries, $e;
+
+        my @children = $e->entries;
+        unshift @queue, @children;
+    }
+
+    my $full_hash_entries = $self->get_entry_list_with_history( \@full_entries );
+
+    my $rows = $self->_get_row_list;
+    my $prev_row = first { $_ < $row } reverse @{$rows};
+    my $next_row = first { $_ > $row } @{$rows};
+
+    $self->stash(
+        template => 'list',
+        view     => 'row',
+        title    => "row #$row",
+        entries  => $full_hash_entries,
+        options  => $rows,
+        current  => $row,
+        redirect_to => "/row/$row",
+        prev_link => defined $prev_row ? [ "/row/$prev_row", "#$prev_row" ] : undef,
+        next_link => defined $next_row ? [ "/row/$next_row", "#$next_row" ] : undef,
+    );
+};
+
+post '/update' => sub {
+    my $self = shift;
+
+    my $params = $self->req->params->to_hash;
+
+    my $page = $params->{page} // 0;
+
+    my $guard = $self->schema->txn_scope_guard;
+
+    my %entry;
+    my %translation;
+    foreach my $key ( sort keys %{$params} ) {
+        next unless ( $key =~ /^row_(\d+)__(\w+)$/ );
+        my ( $row, $col ) = ( $1, $2 );
+        unless ( $entry{$row} ) {
+            $entry{$row} = $self->resultset('Entry')->find({ row => $row });
+            die "COULD NOT FIND ENTRY (ROW => $row)" unless $entry{$row};
+        }
+
+        # to process "unchecked" checkbox
+        next if ( $col =~ /^h__/ );
+
+        $params->{$key} = trim $params->{$key};
+
+        if ( $col =~ /^t__(\w+)$/ ) {
+            $col = $1;
+            $translation{$row}->{$col} = $params->{$key};
+        }
+        else {
+            $entry{$row}->$col( $params->{$key} );
+        }
+    }
+
+    foreach my $row ( keys %translation ) {
+        my $recent = $entry{$row}->recent_translation;
+        # create new translation ONLY IF one or more fields are different
+        foreach my $key ( keys %{$translation{$row}} ) {
+            if (
+                ( ( ! defined $recent ) && ( $translation{$row}->{$key} ne "" ) )
+                    or
+                ( $recent && ( $recent->$key ne $translation{$row}->{$key} ) )
+               )
+            {
+                $translation{$row}->{user} = $self->current_user;
+                my $new_row = $entry{$row}->create_related(
+                    'translations',
+                    $translation{$row}
+                );
+                app->log->info(
+                    sprintf("UPDATE row #%d ( %s | %s | %s ) => ( %s | %s | %s | %s | %s ) by %s.",
+                        $row,
+                        $entry{$row}->eng_1,
+                        $entry{$row}->eng_2,
+                        $entry{$row}->eng_3,
+                        $new_row->kor_1,
+                        $new_row->kor_2,
+                        $new_row->kor_3,
+                        $new_row->kor_page,
+                        $new_row->comment,
+                        $self->current_user,
+                    )
+                );
+                last;
+            }
+        }
+    }
+
+    foreach my $row ( keys %entry ) {
+        $entry{$row}->is_locked( $params->{"row_${row}__is_locked"} // 0 );
+        my %dirty = $entry{$row}->get_dirty_columns;
+        $entry{$row}->update;
+        if ( exists $dirty{is_locked} ) {
+            app->log->info(
+                sprintf("UPDATE row #%d ( %s | %s | %s ) : %s by %s.",
+                    $row,
+                    $entry{$row}->eng_1,
+                    $entry{$row}->eng_2,
+                    $entry{$row}->eng_3,
+                    ( $dirty{is_locked} ? 'locked' : 'unlocked' ),
+                    $self->current_user,
+                )
+            );
+        }
+    }
+
+    $guard->commit;
+
+    if ( defined $params->{redirect_to} ) {
+        return $self->redirect_to($params->{redirect_to}."?r=".$self->randseq);
+    }
+    # should not reach here
+    warn "SHOUD NOT REACH HERE";
+    return $self->redirect_to("/");
+};
+
+post '/upload' => sub {
+    my $self = shift;
+
+    my $upload = $self->param('uploadfile');
+    my $bytes = $upload->slurp;
+
+    my $filename = $upload->filename;
+    my $size = $upload->size;
+    
+    unless ( $upload->filename and $upload->size ) {
+        return $self->redirect_to("/");
+    }
+
+    my $prev_timeout = Mojo::IOLoop->stream($self->tx->connection)->timeout;
+    $self->inactivity_timeout(300);
+
+    my $xlsx_parser = Spreadsheet::ParseXLSX->new();
+    my $workbook;
+    try {
+        my $bytes = $upload->slurp;
+        open my $fh, '<', \$bytes;
+        $workbook = $xlsx_parser->parse($fh);
+        close $fh;
+    }
+    catch {
+        warn $_;
+    };
+
+    unless ( $workbook ) {
+        $self->flash( message => "Failed to parse xlsx file." );
+        return $self->redirect_to("/");
+    }
+
+    my @lines;
+    my %col_idx_to_name = (
+        0 => 'eng_1',
+        1 => 'eng_2',
+        2 => 'eng_3',
+        3 => 'eng_page',
+        4 => 'kor_1',
+        5 => 'kor_2',
+        6 => 'kor_3',
+        7 => 'kor_page',
+        8 => 'comment',
+        9 => 'user',
+        10 => 'is_locked',
+    );
+
+    my $find_parent_row = sub {
+        my ( $ref_arr, $level ) = @_;
+
+        for ( my $idx = $#{$ref_arr}; $idx >= 0; $idx-- ) {
+            next unless $ref_arr->[$idx];
+
+            if ( $ref_arr->[$idx]->{level} < $level ) {
+                return $ref_arr->[$idx]->{row};
+            }
+        }
+
+        # not here
+        die "CAN'T FIND PARENT. CURRENT LINES: ", scalar(@$ref_arr);
+        return;
+    };
+
+    app->log->info("Start uploading...");
+
+    my $guard = $self->schema->txn_scope_guard;
+
+    my $num_entries = 0;
+    for my $worksheet ( $workbook->worksheets() ) {
+        my ( $row_min, $row_max ) = $worksheet->row_range();
+        my ( $col_min, $col_max ) = $worksheet->col_range();
+
+        # skip header rows
+        $row_min = 2;
+        for my $row ( $row_min .. $row_max ) {
+            my $entry = { row => $row + 1 };
+
+            my $empty_line = 1;
+            for my $col ( $col_min .. $col_max ) {
+                my $cell = $worksheet->get_cell( $row, $col );
+                next unless $cell;
+                $empty_line = 0 if $cell->value ne "";
+
+                $entry->{ $col_idx_to_name{$col} } = trim $cell->value();
+            }
+            next if $empty_line;
+
+            if ( $entry->{eng_1} !~ /^\s*$/ ) {
+                $entry->{level} = 1;
+            }
+            else {
+                if ( $entry->{eng_2} !~ /^\s*$/ ) {
+                    $entry->{level} = 2;
+                }
+                else {
+                    $entry->{level} = 3;
+                }
+                $entry->{parent_row_id} = $find_parent_row->( \@lines, $entry->{level} );
+            }
+
+            $entry->{eng_page} //= "";
+            $entry->{eng_page} =~ s/(\d+)\s+(?=\d+)/$1,/g;
+            $entry->{eng_page} =~ s/\s+//g;
+
+            # set is_locked as 1 or 0
+            $entry->{is_locked} = $entry->{is_locked} ? 1 : 0;
+
+            $lines[$row] = $entry;
+            my $new_entry = $self->resultset('Entry')->update_or_create(
+                {
+                    map { $_ => $entry->{$_} } ( qw(row level eng_1 eng_2 eng_3 eng_page parent_row_id is_locked) )
+                }
+            );
+            die unless $new_entry;
+            my @translation_fields = qw(kor_1 kor_2 kor_3 kor_page comment user);
+            if ( grep { exists $entry->{$_} && $entry->{$_} ne "" } @translation_fields ) {
+                my $new_translation = $new_entry->create_related(
+                    'translations',
+                    {
+                        map { $_ => $entry->{$_} } @translation_fields
+                    }
+                );
+                die unless $new_translation;
+            }
+
+            $new_entry->delete_related('entry_pages');
+            my $pages = $entry->{eng_page} || '0';
+            my @pages = split /,/, $pages;
+            foreach my $page ( @pages ) {
+                my ( $first, $last );
+                if ( $page =~ /(\d+)-(\d+)/ ) {
+                    ( $first, $last ) = ( $1, $2 );
+                }
+                elsif ( $page =~ /^(\d+)$/ ) {
+                    ( $first, $last ) = ( $1, $1 );
+                }
+                else {
+                    die "CAN NOT PARSE PAGE [$page] at line [$row][$entry->{eng_1}][$entry->{eng_2}][$entry->{eng_3}]";
+                }
+
+                foreach my $p ( $first .. $last ) {
+                    $new_entry->update_or_create_related('entry_pages', { page => $p });
+                }
+            }
+
+            $num_entries++;
+            if ( $num_entries % 100 == 0 ) {
+                app->log->info("add $num_entries rows.");
+            }
+        }
+    }
+
+    $guard->commit;
+
+    app->log->info("add $num_entries rows.");
+    app->log->info("Finish uploading...");
+    $self->flash( message => "$num_entries entries have been uploaded." );
+    $self->inactivity_timeout($prev_timeout);
+    $self->redirect_to("/");
+};
+
+post '/download' => sub {
+    my $self = shift;
+
+    my $now = DateTime->now( time_zone => 'Asia/Seoul' )->strftime("%Y%m%d%H%M%S");
+    my $filename_template = sprintf("%s-%s-XXXX", $self->config->{book_title}, $now);
+    my ($fh, $filename) = File::Temp::tempfile($filename_template, SUFFIX => '.xlsx', TMPDIR => 1, UNLINK => 1);
+    binmode($fh);
+
+    my %group_header = (
+        map { $_ => 1 } ( 'Symbols', 'Numbers', 'A' .. 'Z' )
+    );
+
+    my $workbook = Excel::Writer::XLSX->new( $filename );
+
+    my $worksheet = $workbook->add_worksheet();
+    my $format_h1 = $workbook->add_format(
+        border    => 1,
+        align     => 'center',
+        valign    => 'vcenter',
+        num_format => '@',
+    );
+    my $format_h2 = $workbook->add_format(
+        border    => 1,
+        align     => 'center',
+        valign    => 'vcenter',
+        bg_color  => 'yellow',
+        num_format => '@',
+    );
+    my $format_h2_extra = $workbook->add_format(
+        border    => 1,
+        align     => 'center',
+        valign    => 'vcenter',
+        bg_color  => 'white',
+        num_format => '@',
+    );
+    my $format_str = $workbook->add_format(
+        num_format => '@',
+        text_wrap => 1,
+    );
+    my $format_group_head = $workbook->add_format(
+        num_format => '@',
+        bg_color => 'cyan',
+    );
+
+    $worksheet->set_column( 'A:J', 20, $format_str );
+    $worksheet->set_column( 'K:K', 4, $format_str );
+    $worksheet->merge_range( 'A1:D1', '영문', $format_h1 );
+    $worksheet->merge_range( 'E1:H1', '번역', $format_h1 );
+    $worksheet->write_string( 'A2', '1단', $format_h2 );
+    $worksheet->write_string( 'B2', '2단', $format_h2 );
+    $worksheet->write_string( 'C2', '3단', $format_h2 );
+    $worksheet->write_string( 'D2', '페이지', $format_h2 );
+    $worksheet->write_string( 'E2', '1단', $format_h2 );
+    $worksheet->write_string( 'F2', '2단', $format_h2 );
+    $worksheet->write_string( 'G2', '3단', $format_h2 );
+    $worksheet->write_string( 'H2', '페이지', $format_h2 );
+    $worksheet->write_string( 'I2', '코멘트', $format_h2_extra );
+    $worksheet->write_string( 'J2', '번역자', $format_h2_extra );
+    $worksheet->write_string( 'K2', '잠금', $format_h2_extra );
+
+    my $rs = $self->resultset('Entry')->search;
+    while ( my $entry = $rs->next ) {
+        my $row = $entry->row - 1;
+
+        my $col = 0;
+        my $format = ( $entry->level == 1 && $group_header{$entry->eng_1} ? $format_group_head : $format_str );
+        foreach my $key ( qw(eng_1 eng_2 eng_3 eng_page) ) {
+            $worksheet->write_string(
+                $row,
+                $col++,
+                $entry->$key // '',
+                $format,
+            );
+        }
+        my $translation = $entry->recent_translation;
+        if ( $translation ) {
+            foreach my $key ( qw(kor_1 kor_2 kor_3 kor_page comment user) ) {
+                $worksheet->write_string(
+                    $row,
+                    $col++,
+                    $translation->$key // '',
+                    $format,
+                );
+            }
+        }
+        $worksheet->write_string(
+            $row,
+            10,
+            $entry->is_locked // '',
+            $format,
+        );
+    }
+
+    $workbook->close;
+
+    my $basename = File::Basename::basename( $filename );
+
+    $self->res->headers->content_disposition("attachment; filename=".Mojo::Util::quote($basename).";");
+    $self->res->headers->content_type('application/vnd.ms-excel');
+    $self->res->content->asset(Mojo::Asset::File->new(path => $filename));
+    $self->rendered(200);
+
+    return;
+    $self->redirect_to('/');
+};
+
+get '/cleardb' => sub {
+    my $self = shift;
+    $self->stash( template => 'cleardb' );
+};
+
+post '/cleardb' => sub {
+    my $self = shift;
+
+    $self->resultset('EntryPage')->delete;
+    $self->resultset('Translation')->delete;
+    $self->resultset('Entry')->delete;
+
+    $self->flash( 'message' => 'DB has been cleared.' );
+    $self->redirect_to("/");
+};
+
+app->log->info("server started.");
+app->start;
+
+
+__DATA__
+
+@@ index.html.ep
+% layout 'default';
+% title 'Front - '.config->{book_title};
+<h1><%= config->{book_title} %> Indexing</h1>
+<h2>Go to</h2>
+<div class="navi row">
+  <div class="col" style="width: 20em;">
+    <form action="/">
+      Row<br />
+      <select name="row" size="5" style="width: 10em">
+        % foreach my $o ( @{$rows} ) {
+        <option value="<%= $o %>"><%= $o %></option>
+        % }
+      </select>
+      <br />
+      <input type="submit" value="go" />
+    </form>
+  </div>
+  <div class="col" style="width: 20em;">
+    <form action="/">
+      Page<br />
+      <select name="page" size="5" style="width: 10em">
+        % foreach my $o ( @{$pages} ) {
+        <option value="<%= $o %>"><%= $o %></option>
+        % }
+      </select>
+      <br />
+      <input type="submit" value="go" />
+    </form>
+  </div>
+</div>
+<p>
+
+<h2>DB Status</h2>
+  <table class="summary">
+    <tr>
+    </tr>
+    <tr>
+      <td class="str">Translated</td>
+      <td class="num"><%= $num_entries_done %></td>
+    </tr>
+    <tr>
+      <td class="str">(Locked)</td>
+      <td class="num"><%= $num_entries_locked %></td>
+    </tr>
+    <tr>
+      <td class="str">Not Translated</td>
+      <td class="num"><%= $num_entries_undone %></td>
+    </tr>
+    <tr>
+      <td class="str">Total Entries</td>
+      <td class="num"><%= $num_entries %></td>
+    </tr>
+    <tr style="border-top: 3px double">
+      <td class="str">Recent Translation</td>
+      <td>
+      % if ( $last_translation ) {
+      <%= time_ago($last_translation->created_at) %> (<%= $last_translation->created_at %>)
+      <%= $last_translation->user // '' %>
+      <br />
+      <a href="/row/<%= $last_translation->entry_row_id %>">
+        <%= $last_translation->entry_row->eng_1 // '' %>
+        <%= $last_translation->entry_row->eng_2 // '' %>
+        <%= $last_translation->entry_row->eng_3 // '' %>
+        =&gt;
+        <%= $last_translation->kor_1 // '' %>
+        <%= $last_translation->kor_2 // '' %>
+        <%= $last_translation->kor_3 // '' %>
+        <small>(#<%= $last_translation->entry_row_id %>)</small>
+      </a>
+      % }
+      </td>
+    </tr>
+  </table>
+
+<h2>Upload XLSX to DB</h2>
+<form method="POST" action="/upload" enctype="multipart/form-data">
+<input type="file" name="uploadfile" />
+<input type="submit" name="upload" value="Upload" />
+</form>
+
+<h2>Download DB as XLSX</h2>
+<form method="POST" action="/download">
+<input type="submit" name="download" value="Download" />
+</form>
+
+<h2>Help</h2>
+<p>
+자기가 따로 엑셀로 작업한 분량(예를 들어 100행~200행)을 업로드하고 싶다면 다음 순서로:<br />
+<span style="color: red">(엑셀 파일을 통채로 업로드하면 남이 여기서 작업한 부분을 덮어써 버리게 됨)</span>
+<ol>
+<li>엑셀 파일에서 자신이 작업한 부분의 뒷부분(201행부터 끝까지)은 행을 통채로 삭제</li>
+<li><strong>자신이 작업한 부분의 앞부분(1행부터 99행)은 행을 삭제하는 것이 아니라, 내용만 지워서 빈 줄로 남김</strong> (자기가 작업한 부분의 행번호가 앞당겨지지 않도록)</li>
+  <ul>
+    <li><strong>(주의)</strong> 자신이 작업한 분량의 제일 첫 번째 항목(이 경우 100행)은 1단 항목이어야 함. 즉 "영문 1단"에 내용이 있어야 함.
+    <li>그럴 일은 거의 없겠지만 만일 첫 항목(100행)이 2단이나 3단 항목이라면, 이 항목이 속한 1단 항목(예를 들어 97행)까지는 지우지 말고 남겨둘 것
+  </ul>
+<li>(만일을 위해서) 현재 시점의 DB 내용을 엑셀 파일로 다운로드하여, 자기가 작업한 부분과 행이 일치하는지 확인(두 파일의 100행~200행이 동일한 항목인지)</li>
+<li>작업한 엑셀 파일을 저장 후 업로드</li>
+</ol>
+
+
+@@ list.html.ep
+% layout 'default';
+% title "$title - ".config->{book_title};
+<h1><%= $title %></h1>
+
+<div class="navi row">
+  <div class="col" style="width: 10em;">
+  % if ( defined $prev_link ) {
+  <a href="<%= $prev_link->[0] %>?r=<%= randseq %>">&lt;&lt; <%= $prev_link->[1] %></a>
+  % }
+  </div>
+  <div class="col" style="width: 20em;">
+    <form action="/">
+      <%= $view %><br />
+      <select name="<%= $view %>" size="5" style="width: 10em">
+        % foreach my $o ( @{$options} ) {
+        <option value="<%= $o %>" <%= $o == $current ? 'selected' : '' %>><%= $o %></option>
+        % }
+      </select>
+      <br />
+      <input type="submit" value="go" />
+    </form>
+  </div>
+  <div class="col" style="width: 10em;">
+  % if ( defined $next_link ) {
+  <a href="<%= $next_link->[0] %>?r=<%= randseq %>"><%= $next_link->[1] %> &gt;&gt;</a>
+  % }
+  </div>
+</div>
+
+<div style="clear: both;">
+</div>
+
+<div>
+  <form action="/update" method="POST">
+  <input type="hidden" name="redirect_to" value="/<%= $view %>/<%= $current %>" />
+  <table class="entries">
+    <tr>
+      <th>Row #</th>
+      <th>Level 1</th>
+      <th>Level 2</th>
+      <th>Level 3</th>
+      <th>pages</th>
+      <th>Level 1</th>
+      <th>Level 2</th>
+      <th>Level 3</th>
+      <th>pages</th>
+      <th>Comment</th>
+      <th>Lock</th>
+      <th>Updated At</th>
+      <th>By</th>
+    </tr>
+    % foreach my $entry ( @{$entries} ) {
+      % if ( $entry->{is_history} ) {
+      <tr class="history">
+        <td colspan="5"> </td>
+        <td><%= $entry->{kor_1} %></td>
+        <td><%= $entry->{kor_2} %></td>
+        <td><%= $entry->{kor_3} %></td>
+        <td><%= $entry->{kor_page} %></td>
+        <td><%= $entry->{comment} %></td>
+        <td> </td>
+        <td><%= time_ago($entry->{created_at}) %> <small>(<%= $entry->{created_at} %>)</small></td>
+        <td><%= $entry->{user} %></td>
+      </tr>
+      % } else {
+    <tr class="<%= ( $view eq 'page' && $entry->{in_page}->($current) or $view eq 'row' &&  $entry->{row} == $current ) ? 'this_page' : 'other_page' %> <%= $entry->{level} == 1 ? 'new_group' : '' %> <%= $entry->{is_locked} ? 'locked' : '' %>">
+        <td>
+          <a href="/row/<%= $entry->{row} %>">
+          <%= $entry->{row} %>
+          </a>
+        </td>
+        <td><%= $entry->{eng_1} %></td>
+        <td><%= $entry->{eng_2} %></td>
+        <td><%= $entry->{eng_3} %></td>
+        <td><%== page_links( $entry->{eng_page} ) %></td>
+        % if ( $entry->{is_locked} ) {
+        <td><%= $entry->{kor_1} %></td>
+        <td><%= $entry->{kor_2} %></td>
+        <td><%= $entry->{kor_3} %></td>
+        <td><%= $entry->{kor_page} %></td>
+        <td><%= $entry->{comment} %></td>
+        % } else {
+        <td>
+          <input class="textfield" type="text" name="<%= "row_".$entry->{row}."__t__kor_1" %>" value="<%= $entry->{kor_1} %>" style="width: 95%" />
+        </td>
+        <td>
+          <input class="textfield" type="text" name="<%= "row_".$entry->{row}."__t__kor_2" %>" value="<%= $entry->{kor_2} %>" style="width: 95%" />
+        </td>
+        <td>
+          <input class="textfield" type="text" name="<%= "row_".$entry->{row}."__t__kor_3" %>" value="<%= $entry->{kor_3} %>" style="width: 95%" />
+        </td>
+        <td>
+          <input class="textfield" type="text" name="<%= "row_".$entry->{row}."__t__kor_page" %>" value="<%= $entry->{kor_page} %>" style="width: 95%" />
+        </td>
+        <td>
+          <input class="textfield" type="text" name="<%= "row_".$entry->{row}."__t__comment" %>" value="<%= $entry->{comment} %>" style="width: 95%" />
+        </td>
+        % }
+        <td>
+          <input type="hidden" name="<%= "row_".$entry->{row}."__h__is_locked" %>" value="1" />
+          <input class="checkbox_lock" type="checkbox" name="<%= "row_".$entry->{row}."__is_locked" %>" value="1" <%= $entry->{is_locked} ? "checked" : "" %> />
+        </td>
+        <td>
+          % if ( $entry->{created_at} ) {
+          <%= time_ago($entry->{created_at}) %> <small>(<%= $entry->{created_at} %>)</small>
+          % } else {
+          -
+          % }
+        </td>
+        <td><%= $entry->{user} %></td>
+    </tr>
+      % } # if(is_history)
+    % } # foreach
+  </table>
+  <input class="update" type="submit" value="update" />
+  </form>
+</div>
+
+
+@@ layouts/default.html.ep
+<!DOCTYPE html>
+<html>
+<head>
+    <meta http-equiv="cache-control" content="no-store, no-cache, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-store, no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    <meta HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">
+    <title><%= title %></title>
+    %= stylesheet '/index_web.css';
+</head>
+<body>
+% if ( $c->url_for->to_string ne "/" ) {
+<a href="/">Go to Front Page</a>
+% }
+<div style="float: right;">
+(<%= current_user %>)
+</div>
+<div style="clear: both;">
+</div>
+
+
+% if ( my $msg = flash 'message' ) {
+<div>
+  <span style="color: red;"><strong><%= $msg %></strong></span>
+</div>
+% }
+
+<%= content %>
+</body>
+</html>
+
+
+@@ cleardb.html.ep
+% layout 'default';
+% title 'Clear DB - '.config->{book_title};
+<h1>Clear DB</h1>
+<form method="POST" action="/cleardb">
+<span style="font-size: 20pt; color: red;">BE CAREFUL</span><br />
+<input type="submit" name="cleardb" value="DELETE ALL" />
+</form>
+

@@ -1,0 +1,17 @@
+{
+    book_title => 'My Book',
+
+    db_connect_arg => [
+        'dbi:SQLite:./db/mybook.db3',
+        '',
+        '',
+        {sqlite_unicode=>1},
+    ],
+
+    basic_auth => {
+        # 'username' => 'password',
+        # password : plain text or crypt()
+        'username' => 'password',
+    },
+};
+
