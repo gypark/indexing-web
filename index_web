@@ -138,7 +138,11 @@ under sub {
     }
 
     my $auth = $self->config->{basic_auth};
-    return unless ref $auth eq ref {};
+
+    unless ( ref $auth eq ref {} and ( keys %$auth ) ) {
+        $self->session(user => 'Anonymous');
+        return 1;
+    }
 
     return 1 if $self->basic_auth(
         $self->config->{book_title} => sub {
