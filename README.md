@@ -50,7 +50,8 @@ Subtraction			      8-9
 2. 필요한 펄 모듈을 설치한다.
 
     ``` bash
-    $ cd Indexing-Web
+    $ cd indexing-web
+    $ cpan App::cpanminus     # cpanm 이 없다면 먼저 설치
     $ cpanm --installdeps .
     ```
 
