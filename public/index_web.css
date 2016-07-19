@@ -65,6 +65,18 @@ table.entries tr.updated_row td {
     background: rgba(255,255,0,0.1);
     background: linear-gradient(to bottom, white 70%, rgba(255,255,0,0.3) 100%);
 }
+table.entries .level1 {
+    background-color: rgb(255, 230, 230);
+    background: linear-gradient(to bottom, white 50%, rgba(255,0,0,0.1) 100%);
+}
+table.entries .level2 {
+    background-color: rgb(230, 255, 230);
+    background: linear-gradient(to bottom, white 50%, rgba(0,255,0,0.1) 100%);
+}
+table.entries .level3 {
+    background-color: rgb(230, 230, 255);
+    background: linear-gradient(to bottom, white 50%, rgba(0,0,255,0.1) 100%);
+}
 
 .navi {
     font-size: 12pt;

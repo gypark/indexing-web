@@ -940,25 +940,25 @@ __DATA__
           <%= $entry->{row} %>
           </a>
         </td>
-        <td><%= $entry->{eng_1} %></td>
-        <td><%= $entry->{eng_2} %></td>
-        <td><%= $entry->{eng_3} %></td>
+        <td><span class="level1"><%= $entry->{eng_1} %></span></td>
+        <td><span class="level2"><%= $entry->{eng_2} %></span></td>
+        <td><span class="level3"><%= $entry->{eng_3} %></span></td>
         <td><%== page_links( $entry->{eng_page} ) %></td>
         % if ( $entry->{is_locked} ) {
-        <td><%= $entry->{kor_1} %></td>
-        <td><%= $entry->{kor_2} %></td>
-        <td><%= $entry->{kor_3} %></td>
+        <td><span class="level1"><%= $entry->{kor_1} %></span></td>
+        <td><span class="level2"><%= $entry->{kor_2} %></span></td>
+        <td><span class="level3"><%= $entry->{kor_3} %></span></td>
         <td><%= $entry->{kor_page} %></td>
         <td><%= $entry->{comment} %></td>
         % } else {
         <td>
-          <input class="textfield" type="text" name="<%= "row_".$entry->{row}."__t__kor_1" %>" value="<%= $entry->{kor_1} %>" style="width: 95%" tabindex="<%= $tabindex++ %>"/>
+          <input class="textfield level1" type="text" name="<%= "row_".$entry->{row}."__t__kor_1" %>" value="<%= $entry->{kor_1} %>" style="width: 95%" tabindex="<%= $tabindex++ %>"/>
         </td>
         <td>
-          <input class="textfield" type="text" name="<%= "row_".$entry->{row}."__t__kor_2" %>" value="<%= $entry->{kor_2} %>" style="width: 95%" tabindex="<%= $tabindex++ %>"/>
+          <input class="textfield level2" type="text" name="<%= "row_".$entry->{row}."__t__kor_2" %>" value="<%= $entry->{kor_2} %>" style="width: 95%" tabindex="<%= $tabindex++ %>"/>
         </td>
         <td>
-          <input class="textfield" type="text" name="<%= "row_".$entry->{row}."__t__kor_3" %>" value="<%= $entry->{kor_3} %>" style="width: 95%" tabindex="<%= $tabindex++ %>"/>
+          <input class="textfield level3" type="text" name="<%= "row_".$entry->{row}."__t__kor_3" %>" value="<%= $entry->{kor_3} %>" style="width: 95%" tabindex="<%= $tabindex++ %>"/>
         </td>
         <td>
           <input class="textfield" type="text" name="<%= "row_".$entry->{row}."__t__kor_page" %>" value="<%= $entry->{kor_page} %>" style="width: 95%" tabindex="<%= $tabindex++ %>"/>
