@@ -919,6 +919,7 @@ __DATA__
       <th>Updated At</th>
       <th>By</th>
     </tr>
+    % my $tabindex = 1;
     % foreach my $entry ( @{$entries} ) {
       % if ( $entry->{is_history} ) {
       <tr class="history">
@@ -951,24 +952,24 @@ __DATA__
         <td><%= $entry->{comment} %></td>
         % } else {
         <td>
-          <input class="textfield" type="text" name="<%= "row_".$entry->{row}."__t__kor_1" %>" value="<%= $entry->{kor_1} %>" style="width: 95%" />
+          <input class="textfield" type="text" name="<%= "row_".$entry->{row}."__t__kor_1" %>" value="<%= $entry->{kor_1} %>" style="width: 95%" tabindex="<%= $tabindex++ %>"/>
         </td>
         <td>
-          <input class="textfield" type="text" name="<%= "row_".$entry->{row}."__t__kor_2" %>" value="<%= $entry->{kor_2} %>" style="width: 95%" />
+          <input class="textfield" type="text" name="<%= "row_".$entry->{row}."__t__kor_2" %>" value="<%= $entry->{kor_2} %>" style="width: 95%" tabindex="<%= $tabindex++ %>"/>
         </td>
         <td>
-          <input class="textfield" type="text" name="<%= "row_".$entry->{row}."__t__kor_3" %>" value="<%= $entry->{kor_3} %>" style="width: 95%" />
+          <input class="textfield" type="text" name="<%= "row_".$entry->{row}."__t__kor_3" %>" value="<%= $entry->{kor_3} %>" style="width: 95%" tabindex="<%= $tabindex++ %>"/>
         </td>
         <td>
-          <input class="textfield" type="text" name="<%= "row_".$entry->{row}."__t__kor_page" %>" value="<%= $entry->{kor_page} %>" style="width: 95%" />
+          <input class="textfield" type="text" name="<%= "row_".$entry->{row}."__t__kor_page" %>" value="<%= $entry->{kor_page} %>" style="width: 95%" tabindex="<%= $tabindex++ %>"/>
         </td>
         <td>
-          <input class="textfield" type="text" name="<%= "row_".$entry->{row}."__t__comment" %>" value="<%= $entry->{comment} %>" style="width: 95%" />
+          <input class="textfield" type="text" name="<%= "row_".$entry->{row}."__t__comment" %>" value="<%= $entry->{comment} %>" style="width: 95%" tabindex="<%= $tabindex++ %>"/>
         </td>
         % }
         <td>
           <input type="hidden" name="<%= "row_".$entry->{row}."__h__is_locked" %>" value="1" />
-          <input class="checkbox_lock" type="checkbox" name="<%= "row_".$entry->{row}."__is_locked" %>" value="1" <%= $entry->{is_locked} ? "checked" : "" %> />
+          <input class="checkbox_lock" type="checkbox" name="<%= "row_".$entry->{row}."__is_locked" %>" value="1" <%= $entry->{is_locked} ? "checked" : "" %> tabindex="<%= $tabindex++ %>"/>
         </td>
         <td>
           % if ( $entry->{created_at} ) {
