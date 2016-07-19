@@ -266,6 +266,7 @@ get '/page/:page' => [ page => qr/\d+/ ] => sub {
         entries  => $full_hash_entries,
         options => $pages,
         current => $page,
+        updated_rows => $self->flash('updated_rows') // {},
         redirect_to => "/page/$page",
         prev_link => defined $prev_page ? [ "/page/$prev_page", "page $prev_page" ] : undef,
         next_link => defined $next_page ? [ "/page/$next_page", "page $next_page" ] : undef,
@@ -341,6 +342,7 @@ get '/row/:row' => [ row => qr/\d+/ ] => sub {
         entries  => $full_hash_entries,
         options  => $rows,
         current  => $row,
+        updated_rows => $self->flash('updated_rows') // {},
         redirect_to => "/row/$row",
         prev_link => defined $prev_row ? [ "/row/$prev_row", "#$prev_row" ] : undef,
         next_link => defined $next_row ? [ "/row/$next_row", "#$next_row" ] : undef,
@@ -358,6 +360,7 @@ post '/update' => sub {
 
     my %entry;
     my %translation;
+    my %updated_rows;
     foreach my $key ( sort keys %{$params} ) {
         next unless ( $key =~ /^row_(\d+)__(\w+)$/ );
         my ( $row, $col ) = ( $1, $2 );
@@ -395,6 +398,7 @@ post '/update' => sub {
                     'translations',
                     $translation{$row}
                 );
+                $updated_rows{$row} = 1;
                 app->log->info(
                     sprintf("UPDATE row #%d ( %s | %s | %s ) => ( %s | %s | %s | %s | %s ) by %s.",
                         $row,
@@ -419,6 +423,7 @@ post '/update' => sub {
         my %dirty = $entry{$row}->get_dirty_columns;
         $entry{$row}->update;
         if ( exists $dirty{is_locked} ) {
+            $updated_rows{$row} = 1;
             app->log->info(
                 sprintf("UPDATE row #%d ( %s | %s | %s ) : %s by %s.",
                     $row,
@@ -435,6 +440,7 @@ post '/update' => sub {
     $guard->commit;
 
     if ( defined $params->{redirect_to} ) {
+        $self->flash( updated_rows => \%updated_rows );
         return $self->redirect_to($params->{redirect_to}."?r=".$self->randseq);
     }
     # should not reach here
@@ -927,7 +933,7 @@ __DATA__
         <td><%= $entry->{user} %></td>
       </tr>
       % } else {
-    <tr class="<%= ( $view eq 'page' && $entry->{in_page}->($current) or $view eq 'row' &&  $entry->{row} == $current ) ? 'this_page' : 'other_page' %> <%= $entry->{level} == 1 ? 'new_group' : '' %> <%= $entry->{is_locked} ? 'locked' : '' %>">
+    <tr class="<%= ( $view eq 'page' && $entry->{in_page}->($current) or $view eq 'row' &&  $entry->{row} == $current ) ? 'this_page' : 'other_page' %> <%= $entry->{level} == 1 ? 'new_group' : '' %> <%= $entry->{is_locked} ? 'locked' : '' %> <%= $updated_rows->{$entry->{row}} ? 'updated_row' : '' %>">
         <td>
           <a href="/row/<%= $entry->{row} %>">
           <%= $entry->{row} %>
