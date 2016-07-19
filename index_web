@@ -557,12 +557,25 @@ post '/upload' => sub {
                 }
             );
             die unless $new_entry;
-            my @translation_fields = qw(kor_1 kor_2 kor_3 kor_page comment user);
-            if ( grep { exists $entry->{$_} && $entry->{$_} ne "" } @translation_fields ) {
+            my @translation_fields = qw(kor_1 kor_2 kor_3 kor_page comment);
+
+            my $recent_translation = $new_entry->recent_translation;
+            if (
+                (
+                    $recent_translation &&
+                    grep { ( $recent_translation->$_ // '' ) ne ( $entry->{$_} // '' ) } @translation_fields
+                )
+                    or
+                (
+                    ! $recent_translation &&
+                    grep { exists $entry->{$_} && $entry->{$_} ne '' } @translation_fields
+                )
+               )
+            {
                 my $new_translation = $new_entry->create_related(
                     'translations',
                     {
-                        map { $_ => $entry->{$_} } @translation_fields
+                        map { $_ => $entry->{$_} } ( @translation_fields, 'user' )
                     }
                 );
                 die unless $new_translation;
@@ -584,6 +597,8 @@ post '/upload' => sub {
                 }
 
                 foreach my $p ( $first .. $last ) {
+                    # XXX 위에서 delete_related를 했지만 여기서 create를 하면 안 됨
+                    # 엑셀 파일에서 페이지가 10-12, 12-14 이런 식으로 된 경우 12가 중복되어 에러가 날 수 있다
                     $new_entry->update_or_create_related('entry_pages', { page => $p });
                 }
             }
