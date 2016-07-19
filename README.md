@@ -68,8 +68,8 @@ Subtraction			      8-9
 5. 실행한다.
 
     ``` bash
-    $ perl -Ilib index-web daemon                     # 3000번 포트 사용
-    $ perl -Ilib index-web daemon -l "http://*:9999"  # 다른 포트를 쓸 경우
+    $ perl -Ilib index_web daemon                     # 3000번 포트 사용
+    $ perl -Ilib index_web daemon -l "http://*:9999"  # 다른 포트를 쓸 경우
     ```
 
 6. 웹 브라우저로 `http://localhost:3000`에 접속한다.
