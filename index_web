@@ -510,6 +510,10 @@ post '/upload' => sub {
 
     my $guard = $self->schema->txn_scope_guard;
 
+    my @translations_to_populate;
+    my @entry_pages_to_populate;
+    my %entry_page_seen;
+
     my $num_entries = 0;
     for my $worksheet ( $workbook->worksheets() ) {
         my ( $row_min, $row_max ) = $worksheet->row_range();
@@ -572,13 +576,11 @@ post '/upload' => sub {
                 )
                )
             {
-                my $new_translation = $new_entry->create_related(
-                    'translations',
+                push @translations_to_populate,
                     {
-                        map { $_ => $entry->{$_} } ( @translation_fields, 'user' )
-                    }
-                );
-                die unless $new_translation;
+                        entry_row_id => $entry->{row},
+                        ( map { $_ => $entry->{$_} // '' } ( @translation_fields, 'user' ) )
+                    };
             }
 
             $new_entry->delete_related('entry_pages');
@@ -597,9 +599,11 @@ post '/upload' => sub {
                 }
 
                 foreach my $p ( $first .. $last ) {
-                    # XXX 위에서 delete_related를 했지만 여기서 create를 하면 안 됨
+                    # XXX 중복 검사를 여기서 해야 함:
                     # 엑셀 파일에서 페이지가 10-12, 12-14 이런 식으로 된 경우 12가 중복되어 에러가 날 수 있다
-                    $new_entry->update_or_create_related('entry_pages', { page => $p });
+                    unless ( $entry_page_seen{ $entry->{row} }{ $p }++ ) {
+                        push @entry_pages_to_populate, { entry_row_id => $entry->{row}, page => $p };
+                    }
                 }
             }
 
@@ -609,6 +613,14 @@ post '/upload' => sub {
             }
         }
     }
+
+    # bulk inserting of translation and entry_page
+    my $timestamp_now = DateTime->now->strftime("%Y-%m-%d %H:%M:%S");
+    foreach ( @translations_to_populate ) {
+        $_->{created_at} = $timestamp_now;
+    }
+    $self->resultset('Translation')->populate( \@translations_to_populate );
+    $self->resultset('EntryPage')->populate( \@entry_pages_to_populate );
 
     $guard->commit;
 
