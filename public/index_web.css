@@ -41,10 +41,10 @@ table.entries td {
     border-style: solid;
     border-color: #666666;
 }
-table.entries tr.this_page td {
+table.entries tr.this_page {
     background-color: #ffffff;
 }
-table.entries tr.other_page td {
+table.entries tr.other_page {
     background-color: #f0f0f0;
 }
 table.entries tr.new_group td {
@@ -63,18 +63,27 @@ table.entries tr.history td {
 }
 table.entries tr.updated_row td {
     background: rgba(255,255,0,0.1);
-    background: linear-gradient(to bottom, white 70%, rgba(255,255,0,0.3) 100%);
+    background: linear-gradient(to bottom, rgba(255,255,0,0) 70%, rgba(255,255,0,0.3) 100%);
 }
 table.entries .level1 {
     background-color: rgb(255, 230, 230);
+    background: linear-gradient(to bottom, rgba(255,0,0,0) 50%, rgba(255,0,0,0.1) 100%);
+}
+table.entries input.level1 {
     background: linear-gradient(to bottom, white 50%, rgba(255,0,0,0.1) 100%);
 }
 table.entries .level2 {
     background-color: rgb(230, 255, 230);
+    background: linear-gradient(to bottom, rgba(0,255,0,0) 50%, rgba(0,255,0,0.1) 100%);
+}
+table.entries input.level2 {
     background: linear-gradient(to bottom, white 50%, rgba(0,255,0,0.1) 100%);
 }
 table.entries .level3 {
     background-color: rgb(230, 230, 255);
+    background: linear-gradient(to bottom, rgba(0,0,255,0) 50%, rgba(0,0,255,0.1) 100%);
+}
+table.entries input.level3 {
     background: linear-gradient(to bottom, white 50%, rgba(0,0,255,0.1) 100%);
 }
 
