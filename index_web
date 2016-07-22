@@ -983,7 +983,7 @@ __DATA__
       % } # if(is_history)
     % } # foreach
   </table>
-  <input class="update" type="submit" value="update" />
+  <input class="update" type="submit" value="update" tabindex="<%= $tabindex++ %>"/>
   </form>
 </div>
 
