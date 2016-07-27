@@ -102,18 +102,14 @@ helper 'time_ago' => sub {
     return $timestamp ? $formatter->format_datetime($timestamp) : '';
 };
 
+# XXX: translations should be sorted by descending order when searching
 helper 'get_entry_list_with_history' => sub {
     my ($self, $list) = @_;
 
     my @full_hash_entries;
     foreach my $entry ( @{$list} ) {
         push @full_hash_entries, $entry->as_hash;
-        my @translations = $entry->translations(
-            undef,
-            {
-                order_by => [ { -desc => 'me.created_at' }, { -desc => 'me.id' } ],
-            }
-        );
+        my @translations = $entry->translations;
         next unless ( @translations >= 2 );
         shift @translations;
         foreach my $t ( @translations ) {
@@ -283,13 +279,7 @@ get '/row/:row' => [ row => qr/\d+/ ] => sub {
             'me.row' => $row,
         },
         {
-            prefetch => [
-                { 'entries' => { 'entries' => 'entries' } },
-                { 'parent_row' => 'parent_row' },
-            ],
-            order_by => [
-                { -asc => 'me.row' },
-            ],
+            prefetch => [ { 'parent_row' => 'parent_row' }, ],
         }
     );
 
@@ -303,21 +293,39 @@ get '/row/:row' => [ row => qr/\d+/ ] => sub {
     }
     # XXX just to reduce queries
     # reload group header node with prefetching
-    if ( $parent != $entry ) {
-        $parent = $self->resultset('Entry')->find(
-            {
-                'me.row' => $parent->row,
-            },
-            {
-                prefetch => [
-                    { 'entries' => { 'entries' => 'entries' } },
-                ],
-                order_by => [
-                    { -asc => 'me.row' },
-                ],
-            }
-        );
-    }
+    $parent = $self->resultset('Entry')->find(
+        {
+            'me.row' => $parent->row,
+        },
+        {
+            prefetch => [
+                'translations',
+                {
+                    'entries' => [
+                        'translations',
+                        {
+                            'entries' => [
+                                'translations',
+                                'entries'
+                            ],
+                        }
+                    ],
+                },
+            ],
+
+            order_by => [
+                { -asc => 'me.row' },
+                { -desc => 'translations.created_at' },
+                { -desc => 'translations.id' },
+                { -asc => 'entries.row' },
+                { -desc => 'translations_2.created_at' },
+                { -desc => 'translations_2.id' },
+                { -asc => 'entries_2.row' },
+                { -desc => 'translations_3.created_at' },
+                { -desc => 'translations_3.id' },
+            ],
+        }
+    );
 
     my @full_entries;
     my @queue = ( $parent );

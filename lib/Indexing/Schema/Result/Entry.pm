@@ -229,10 +229,11 @@ sub recent_translation {
     return $translation;
 }
 
+# XXX: translations should be sorted by descending order when searching
 sub as_hash {
     my $self = shift;
 
-    my $translation = $self->recent_translation;
+    my $translation = $self->translations->first;
     return {
         ( map { $_ => $self->$_ } qw(row level eng_1 eng_2 eng_3 eng_page is_locked) ),
         ( map { $_ => $translation ? $translation->$_ : '' } qw(kor_1 kor_2 kor_3 kor_page comment user created_at) ),
