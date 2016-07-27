@@ -249,6 +249,8 @@ get '/page/:page' => [ page => qr/\d+/ ] => sub {
         }
     );
 
+    my %entry_in_current_page = map { $_->row => 1 } @entries;
+
     my @full_entries;
 
     while ( @entries ) {
@@ -285,6 +287,8 @@ get '/page/:page' => [ page => qr/\d+/ ] => sub {
         redirect_to => "/page/$page",
         prev_link => defined $prev_page ? [ "/page/$prev_page", "page $prev_page" ] : undef,
         next_link => defined $next_page ? [ "/page/$next_page", "page $next_page" ] : undef,
+
+        entry_in_current_page => \%entry_in_current_page,
     );
 };
 
@@ -961,7 +965,7 @@ __DATA__
         <td><%= $entry->{user} %></td>
       </tr>
       % } else {
-    <tr class="<%= ( $view eq 'page' && $entry->{in_page}->($current) or $view eq 'row' &&  $entry->{row} == $current ) ? 'this_page' : 'other_page' %> <%= $entry->{level} == 1 ? 'new_group' : '' %> <%= $entry->{is_locked} ? 'locked' : '' %> <%= $updated_rows->{$entry->{row}} ? 'updated_row' : '' %>">
+    <tr class="<%= ( $view eq 'page' && stash('entry_in_current_page')->{$entry->{row}} or $view eq 'row' && $entry->{row} == $current ) ? 'this_page' : 'other_page' %> <%= $entry->{level} == 1 ? 'new_group' : '' %> <%= $entry->{is_locked} ? 'locked' : '' %> <%= $updated_rows->{$entry->{row}} ? 'updated_row' : '' %>">
         <td>
           <a href="/row/<%= $entry->{row} %>">
           <%= $entry->{row} %>
