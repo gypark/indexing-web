@@ -222,10 +222,29 @@ get '/page/:page' => [ page => qr/\d+/ ] => sub {
             },
         },
         {
-            prefetch => [ { 'parent_row' => 'parent_row' }, 'entry_pages' ],
+            prefetch => [
+                'translations',
+                {
+                    'parent_row' => [
+                        'translations',
+                        {
+                            'parent_row' => 'translations'
+                        }
+                    ]
+                },
+                'entry_pages'
+            ],
             order_by => [
                 { -asc => 'entry_pages.page' },
                 { -asc => 'me.row' },
+                { -desc => 'translations.created_at' },
+                { -desc => 'translations.id' },
+                { -asc => 'parent_row.row' },
+                { -desc => 'translations_2.created_at' },
+                { -desc => 'translations_2.id' },
+                { -asc => 'parent_row_2.row' },
+                { -desc => 'translations_3.created_at' },
+                { -desc => 'translations_3.id' },
             ],
         }
     );
