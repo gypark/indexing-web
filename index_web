@@ -380,6 +380,45 @@ get '/row/:row' => [ row => qr/\d+/ ] => sub {
     );
 };
 
+get '/list/:cond' => [ cond => [ qw(locked not_locked not_translated comment) ] ] => sub {
+    my $self = shift;
+
+    my $cond = $self->param('cond');
+
+    my @entries;
+
+    if ( $cond =~ /^(?:locked|not_locked)$/ ) {
+        @entries = $self->resultset('Entry')->search(
+            {
+                'me.is_locked' => ( $cond eq 'locked' ? 1 : 0 ),
+            },
+            {
+                prefetch => 'translations',
+                order_by => [
+                    { -asc => 'me.row' },
+                    { -desc => 'translations.created_at' },
+                    { -desc => 'translations.id' },
+                ],
+            }
+        );
+    }
+
+    my $full_hash_entries = $self->get_entry_list_with_history( \@entries );
+
+    $self->stash(
+        template => 'list',
+        view     => '',
+        title    => "Entries that is locked",
+        entries  => $full_hash_entries,
+        options  => undef,
+        current  => undef,
+        updated_rows => $self->flash('updated_rows') // {},
+        redirect_to => "/list/$cond",
+        prev_link => undef,
+        next_link => undef,
+    );
+};
+
 post '/update' => sub {
     my $self = shift;
 
@@ -827,6 +866,15 @@ __DATA__
     </form>
   </div>
 </div>
+<div>
+  Or
+  <ul>
+    <li><a href="/list/locked">Entries that are locked</a></li>
+    <li><a href="/list/not_locked">Entries that are not locked</a></li>
+    <li><a href="/list/not_translated">Entries that have not translated</a></li>
+    <li><a href="/list/comment">Entries that have comments</a></li>
+  </ul>
+</div>
 <p>
 
 <h2>DB Status</h2>
@@ -903,6 +951,7 @@ __DATA__
 % title "$title - ".config->{book_title};
 <h1><%= $title %></h1>
 
+% if ( $options ) {
 <div class="navi row">
   <div class="col" style="width: 10em;">
   % if ( defined $prev_link ) {
@@ -930,6 +979,7 @@ __DATA__
 
 <div style="clear: both;">
 </div>
+% }
 
 <div>
   <form action="/update" method="POST">
