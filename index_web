@@ -385,6 +385,7 @@ get '/list/:cond' => [ cond => [ qw(locked not_locked not_translated comment) ] 
 
     my $cond = $self->param('cond');
 
+    my $title;
     my @entries;
 
     if ( $cond =~ /^(?:locked|not_locked)$/ ) {
@@ -401,6 +402,8 @@ get '/list/:cond' => [ cond => [ qw(locked not_locked not_translated comment) ] 
                 ],
             }
         );
+        $title = $cond eq 'locked' ? "Entries that are locked"
+                                   : "Entries that are not locked"
     }
     elsif ( $cond eq 'not_translated' ) {
         @entries = $self->resultset('Entry')->search(
@@ -411,6 +414,26 @@ get '/list/:cond' => [ cond => [ qw(locked not_locked not_translated comment) ] 
                 join => 'translations',
             }
         );
+        $title = 'Entries that have not been translated',
+    }
+    elsif ( $cond eq 'comment' ) {
+        @entries =
+            grep { ( $_->translations->first and $_->translations->first->comment ) }
+            $self->resultset('Entry')->search(
+                undef,
+                {
+                    prefetch     => [ 'translations' ],
+                    order_by => [
+                        { -asc => 'me.row' },
+                        { -desc => 'translations.created_at' },
+                        { -desc => 'translations.id' },
+                    ],
+                }
+            );
+        $title = 'Entries with comments',
+    }
+    else {
+        $title = '';
     }
 
     my $full_hash_entries = $self->get_entry_list_with_history( \@entries );
@@ -418,7 +441,7 @@ get '/list/:cond' => [ cond => [ qw(locked not_locked not_translated comment) ] 
     $self->stash(
         template => 'list',
         view     => '',
-        title    => "Entries that is locked",
+        title    => $title,
         entries  => $full_hash_entries,
         options  => undef,
         current  => undef,
