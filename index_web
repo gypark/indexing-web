@@ -402,6 +402,16 @@ get '/list/:cond' => [ cond => [ qw(locked not_locked not_translated comment) ] 
             }
         );
     }
+    elsif ( $cond eq 'not_translated' ) {
+        @entries = $self->resultset('Entry')->search(
+            {
+                'translations.id' => undef,
+            },
+            {
+                join => 'translations',
+            }
+        );
+    }
 
     my $full_hash_entries = $self->get_entry_list_with_history( \@entries );
 
