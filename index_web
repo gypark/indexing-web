@@ -893,8 +893,8 @@ __DATA__
   <ul>
     <li><a href="/list/locked">Entries that are locked</a></li>
     <li><a href="/list/not_locked">Entries that are not locked</a></li>
-    <li><a href="/list/not_translated">Entries that have not translated</a></li>
-    <li><a href="/list/comment">Entries that have comments</a></li>
+    <li><a href="/list/not_translated">Entries that have not been translated</a></li>
+    <li><a href="/list/comment">Entries with comments</a></li>
   </ul>
 </div>
 <p>
