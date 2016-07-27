@@ -435,7 +435,18 @@ post '/update' => sub {
         next unless ( $key =~ /^row_(\d+)__(\w+)$/ );
         my ( $row, $col ) = ( $1, $2 );
         unless ( $entry{$row} ) {
-            $entry{$row} = $self->resultset('Entry')->find({ row => $row });
+            $entry{$row} = $self->resultset('Entry')->find(
+                {
+                    row => $row
+                },
+                {
+                    prefetch => 'translations',
+                    order_by => [
+                        { -desc => 'translations.created_at' },
+                        { -desc => 'translations.id' },
+                    ],
+                }
+            );
             die "COULD NOT FIND ENTRY (ROW => $row)" unless $entry{$row};
         }
 
@@ -454,7 +465,8 @@ post '/update' => sub {
     }
 
     foreach my $row ( keys %translation ) {
-        my $recent = $entry{$row}->recent_translation;
+        # XXX: translations should be sorted by descending order when searching before
+        my $recent = $entry{$row}->translations->first;
         # create new translation ONLY IF one or more fields are different
         foreach my $key ( keys %{$translation{$row}} ) {
             if (
