@@ -205,6 +205,25 @@ get '/' => sub {
                 'me.is_locked' => 1,
             },
         )->count,
+        num_entries_not_locked => $self->resultset('Entry')->search(
+            {
+                'me.is_locked' => 0,
+            },
+        )->count,
+        num_entries_with_comment => $self->resultset('Translation')->search(
+            {
+                'me.id' => {
+                    -in => $self->resultset('Translation')->search(
+                        undef,
+                        {
+                            columns => [ { max_id => { max => 'id' } } ],
+                            group_by => 'me.entry_row_id'
+                        }
+                    )->get_column('max_id')->as_query,
+                },
+                'me.comment' => { '!=' => '' },
+            }
+        )->count,
         last_translation => $last_translation,
     );
 };
@@ -914,10 +933,10 @@ __DATA__
 <div>
   Or
   <ul>
-    <li><a href="/list/locked">Entries that are locked</a></li>
-    <li><a href="/list/not_locked">Entries that are not locked</a></li>
-    <li><a href="/list/not_translated">Entries that have not been translated</a></li>
-    <li><a href="/list/comment">Entries with comments</a></li>
+    <li><a href="/list/locked">Entries that are locked (<%= $num_entries_locked %>)</a></li>
+    <li><a href="/list/not_locked">Entries that are not locked (<%= $num_entries_not_locked %>)</a></li>
+    <li><a href="/list/not_translated">Entries that have not been translated (<%= $num_entries_undone %>)</a></li>
+    <li><a href="/list/comment">Entries with comments (<%= $num_entries_with_comment %>)</a></li>
   </ul>
 </div>
 <p>
